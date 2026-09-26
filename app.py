@@ -1,10 +1,14 @@
 """유튜브 채널 → 텔레그램 자동 링크 전송 대시보드.
 
-실행:  python app.py   → 브라우저에서 http://127.0.0.1:5000 이 열립니다.
+실행:  python app.py   → 브라우저에서 http://127.0.0.1:8765 가 열립니다.
 """
 
+import json
 import os
+import socket
+import sys
 import threading
+import urllib.request
 import time
 import webbrowser
 
@@ -137,10 +141,60 @@ def capture_position():
     return ok()
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
+# 맥은 5000번 포트를 "AirPlay 수신 모드"가 쓰고 있어서 다른 포트를 사용
+DEFAULT_PORT = 8765
+_local = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def is_our_app(port: int) -> bool:
+    try:
+        with _local.open(f"http://127.0.0.1:{port}/api/state", timeout=2) as r:
+            return "total_sent" in json.loads(r.read())
+    except Exception:
+        return False
+
+
+def port_free(port: int) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def open_browser_when_ready(port: int):
     url = f"http://127.0.0.1:{port}"
-    print(f"\n  대시보드 주소: {url}\n  종료하려면 이 창에서 Ctrl+C\n")
-    if os.environ.get("NO_BROWSER") != "1":
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    for _ in range(50):
+        if is_our_app(port):
+            webbrowser.open(url)
+            return
+        time.sleep(0.2)
+    print(f"  [경고] 대시보드가 응답하지 않습니다. 브라우저에서 {url} 을 직접 열어 보세요.")
+
+
+if __name__ == "__main__":
+    no_browser = os.environ.get("NO_BROWSER") == "1"
+    ports = [int(os.environ["PORT"])] if os.environ.get("PORT") else range(DEFAULT_PORT, DEFAULT_PORT + 20)
+    port = None
+    for p in ports:
+        if is_our_app(p):
+            # 이미 켜져 있으면 두 개가 동시에 텔레그램에 입력하지 않도록 새로 켜지 않음
+            print(f"\n  이미 실행 중입니다 → http://127.0.0.1:{p}\n")
+            if not no_browser:
+                webbrowser.open(f"http://127.0.0.1:{p}")
+            sys.exit(0)
+        if port_free(p):
+            port = p
+            break
+    if port is None:
+        print(f"\n  [오류] 사용할 수 있는 포트가 없습니다: {list(ports)}\n")
+        sys.exit(1)
+
+    url = f"http://127.0.0.1:{port}"
+    print(f"\n  대시보드 주소: {url}\n  이 창을 닫으면 프로그램이 꺼집니다. (종료: Ctrl+C)\n")
+    if not no_browser:
+        threading.Thread(target=open_browser_when_ready, args=(port,), daemon=True).start()
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
