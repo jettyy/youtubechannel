@@ -1,5 +1,6 @@
 flask>=3.0
-yt-dlp>=2024.1.1
+yt-dlp[default]>=2025.1.1
+certifi
 pyautogui>=0.9.54
 pyperclip>=1.8.2
 pygetwindow>=0.0.9; sys_platform == "win32"

@@ -22,5 +22,5 @@ fi
 source .venv/bin/activate
 python -m pip install -q --upgrade pip
 python -m pip install -q -r requirements.txt
-python -m pip install -q --upgrade yt-dlp
+python -m pip install -q --upgrade "yt-dlp[default]"
 python app.py

@@ -147,7 +147,11 @@ class Engine:
             ch["status"] = "loading"
             url = ch["url"]
         try:
-            name, videos = self.fetcher(url, self._tabs())
+            result = self.fetcher(url, self._tabs())
+            name, videos = result[0], result[1]
+            warning = result[2] if len(result) > 2 else ""
+            if not videos:
+                raise RuntimeError("영상 목록이 비어 있습니다.")
         except Exception as e:
             with self.lock:
                 ch["status"] = "error" if not ch["videos"] else "ready"
@@ -159,11 +163,13 @@ class Engine:
             ch["name"] = name or ch["name"]
             ch["videos"] = videos
             ch["fetched_at"] = time.time()
-            ch["error"] = "" if videos else "영상이 없습니다."
-            ch["status"] = "ready" if videos else "error"
+            ch["error"] = warning
+            ch["status"] = "ready"
             if reset_index or ch["index"] >= len(videos):
                 ch["index"] = 0
         self.add_log("info", f"영상 {len(videos)}개 불러옴", ch["name"])
+        if warning:
+            self.add_log("error", warning, ch["name"])
         self.save()
         return True
 

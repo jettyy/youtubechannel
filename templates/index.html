@@ -295,7 +295,7 @@ function render() {
       <td style="min-width:110px">${c.count ? c.index + 1 : 0} / ${c.count}<div class="bar"><i style="width:${pct}%"></i></div></td>
       <td style="max-width:260px">${c.current ? `<a class="ellipsis" href="${esc(c.current.url)}" target="_blank">${esc(c.current.title || c.current.url)}</a>` : "-"}</td>
       <td>${c.loops}</td>
-      <td style="min-width:150px">${badge}${c.error && c.status === "error" ? `<div class="hint" style="color:var(--bad)">${esc(c.error).slice(0, 80)}</div>` : ""}</td>
+      <td style="min-width:150px">${badge}${c.error && c.status !== "loading" ? `<div class="hint" style="color:var(--${c.status === "error" ? "bad" : "warn"});max-width:320px;word-break:break-all" title="${esc(c.error)}">${esc(c.error.slice(0, 200))}</div>` : ""}</td>
       <td style="white-space:nowrap">
         <button class="small" data-act="up" data-id="${c.id}" ${i === 0 ? "disabled" : ""}>↑</button>
         <button class="small" data-act="down" data-id="${c.id}" ${i === s.channels.length - 1 ? "disabled" : ""}>↓</button>
