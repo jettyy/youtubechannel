@@ -61,13 +61,16 @@ def focus_window(title: str) -> bool:
         return True
 
     if SYSTEM == "Darwin":
-        app = "Telegram" if "telegram" in title.lower() else title
-        r = subprocess.run(
-            ["osascript", "-e", f'tell application "{app}" to activate'],
-            capture_output=True,
-        )
-        time.sleep(0.5)
-        return r.returncode == 0
+        # 맥용 텔레그램은 앱 이름이 "Telegram" 또는 "Telegram Desktop"
+        names = [title]
+        if "telegram" in title.lower():
+            names += ["Telegram", "Telegram Desktop"]
+        for app in dict.fromkeys(names):
+            r = subprocess.run(["open", "-a", app], capture_output=True)
+            if r.returncode == 0:
+                time.sleep(0.7)
+                return True
+        return False
 
     # Linux (xdotool 이 설치되어 있으면 사용)
     try:
@@ -105,7 +108,8 @@ def send_text(text: str, settings: dict) -> None:
     # 한/영 입력 상태와 상관없이 정확히 입력되도록 클립보드로 붙여넣기
     pyperclip.copy(text)
     time.sleep(0.1)
-    pyautogui.hotkey("command" if SYSTEM == "Darwin" else "ctrl", "v")
+    # 맥은 키를 너무 빨리 누르면 command 가 무시되는 경우가 있어 간격을 둠
+    pyautogui.hotkey("command" if SYSTEM == "Darwin" else "ctrl", "v", interval=0.1)
     time.sleep(0.3)
     if settings.get("press_enter", True):
         pyautogui.press("enter")
