@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>유튜브 → 텔레그램 자동 전송</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #1d1f23; --muted: #6b7280; --line: #e3e5e9;
+    --accent: #2a8bf2; --accent-soft: #e6f1fe; --ok: #1f9d55; --ok-soft: #e3f6ea;
+    --bad: #d93b3b; --bad-soft: #fde8e8; --warn: #b7791f; --warn-soft: #fdf3dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171b; --card: #1e2126; --text: #e8eaed; --muted: #9aa0a8; --line: #2e3238;
+      --accent: #4ea1f7; --accent-soft: #1c2d42; --ok: #3cc47a; --ok-soft: #173325;
+      --bad: #f06a6a; --bad-soft: #3a1d1d; --warn: #e0a84a; --warn-soft: #362a15;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button.big { padding: 10px 22px; font-size: 15px; font-weight: 600; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  input, select, textarea { font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  textarea { width: 100%; resize: vertical; min-height: 70px; }
+  input[type=number] { width: 90px; }
+  label { display: block; margin-bottom: 10px; }
+  label .lbl { display: block; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+  .check { display: flex; gap: 8px; align-items: center; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .status { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+  .countdown { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .v { font-size: 20px; font-weight: 700; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .next { flex: 1; min-width: 220px; overflow: hidden; }
+  .next a, .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  a { color: var(--accent); text-decoration: none; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+  td.name { max-width: 260px; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; }
+  .badge.ready { background: var(--ok-soft); color: var(--ok); }
+  .badge.loading { background: var(--warn-soft); color: var(--warn); }
+  .badge.error { background: var(--bad-soft); color: var(--bad); }
+  .badge.off { background: var(--line); color: var(--muted); }
+  .log { max-height: 420px; overflow: auto; font-size: 13px; }
+  .log div { padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
+  .log .t { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .log .error { color: var(--bad); }
+  .log .info { color: var(--muted); }
+  .msg { margin-top: 8px; font-size: 13px; }
+  .msg.err { color: var(--bad); }
+  .table-wrap { overflow-x: auto; }
+  .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📺 유튜브 채널 → 텔레그램 자동 전송</h1>
+
+  <!-- 상태 -->
+  <div class="card status">
+    <div class="row">
+      <span class="dot" id="dot"></span>
+      <b id="statusText">정지됨</b>
+    </div>
+    <div>
+      <div class="countdown" id="countdown">--:--</div>
+      <div class="muted" style="font-size:12px">다음 전송까지</div>
+    </div>
+    <div class="stat"><div class="v" id="totalSent">0</div><div class="k">총 전송</div></div>
+    <div class="next">
+      <div class="muted" style="font-size:12px">다음에 보낼 영상</div>
+      <div id="nextBox" class="muted">-</div>
+    </div>
+    <div class="row">
+      <button class="big primary" id="startBtn">▶ 시작</button>
+      <button id="skipBtn" title="대기하지 않고 지금 바로 다음 영상을 보냅니다">바로 보내기</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- 채널 추가 -->
+    <div class="card">
+      <h2>채널 추가</h2>
+      <textarea id="urls" placeholder="유튜브 채널 주소를 입력하세요 (여러 개는 줄바꿈으로 구분)&#10;예) https://www.youtube.com/@채널이름&#10;    https://www.youtube.com/channel/UCxxxxxxxx"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="addBtn">채널 추가</button>
+        <span class="muted" style="font-size:12px">추가하면 영상 목록(최신순)을 자동으로 불러옵니다.</span>
+      </div>
+      <div class="msg" id="addMsg"></div>
+    </div>
+
+    <!-- 설정 -->
+    <div class="card">
+      <h2>설정</h2>
+      <div class="row">
+        <label>
+          <span class="lbl">전송 간격</span>
+          <span class="row">
+            <input type="number" id="intervalVal" min="1" step="1">
+            <select id="intervalUnit">
+              <option value="1">초</option><option value="60">분</option><option value="3600">시간</option>
+            </select>
+          </span>
+        </label>
+        <label>
+          <span class="lbl">랜덤 추가 대기 (0~N초)</span>
+          <input type="number" id="jitter" min="0" step="1">
+        </label>
+        <label>
+          <span class="lbl">여러 채널 순서</span>
+          <select id="mode">
+            <option value="round_robin">채널 번갈아 (A1 → B1 → A2 → B2 …)</option>
+            <option value="sequential">한 채널씩 끝까지 (A 전체 → B 전체 …)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>
+          <span class="lbl">텔레그램 창 제목</span>
+          <input id="windowTitle" style="width:140px">
+        </label>
+        <label>
+          <span class="lbl">시작 후 첫 전송 대기(초)</span>
+          <input type="number" id="startDelay" min="0">
+        </label>
+        <label style="flex:1;min-width:180px">
+          <span class="lbl">보낼 문구 ({url} {title} {channel})</span>
+          <input id="msgFormat" style="width:100%">
+        </label>
+      </div>
+      <label>
+        <span class="lbl">메시지 입력칸 클릭 위치 (선택)</span>
+        <span class="row">
+          <span id="clickPos" class="muted">설정 안 함</span>
+          <button class="small" id="captureBtn">위치 잡기</button>
+          <button class="small" id="clearPosBtn">지우기</button>
+          <span id="captureMsg" class="muted" style="font-size:12px"></span>
+        </span>
+        <p class="hint">‘위치 잡기’를 누르고 5초 안에 마우스를 텔레그램 채팅 입력칸 위에 올려 두세요.</p>
+      </label>
+      <div class="row" style="gap:16px">
+        <label class="check"><input type="checkbox" id="pressEnter"> Enter로 전송</label>
+        <label class="check"><input type="checkbox" id="includeShorts"> 쇼츠 포함</label>
+        <label class="check"><input type="checkbox" id="includeStreams"> 라이브 포함</label>
+        <label class="check"><input type="checkbox" id="requireWindow"> 창 못 찾으면 보내지 않기</label>
+        <label class="check"><input type="checkbox" id="dryRun"> 테스트 모드 (실제 입력 안 함)</label>
+      </div>
+      <div class="row">
+        <button class="primary" id="saveBtn">설정 저장</button>
+        <button id="testBtn" title="3초 뒤 텔레그램 창에 테스트 메시지를 입력합니다">테스트 메시지 보내기</button>
+        <span class="msg" id="setMsg"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 채널 목록 -->
+  <div class="card">
+    <h2>채널 목록 <span class="muted" id="chCount"></span></h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>사용</th><th>채널</th><th>진행</th><th>현재 차례 영상</th><th>바퀴</th><th>상태</th><th></th>
+        </tr></thead>
+        <tbody id="chBody"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="emptyHint">아직 등록된 채널이 없습니다.</p>
+  </div>
+
+  <!-- 기록 -->
+  <div class="card">
+    <h2>최근 기록</h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+let settingsLoaded = false;
+
+async function api(method, url, body) {
+  const r = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+}
+
+function fmtTime(t) {
+  const d = new Date(t * 1000);
+  return d.toLocaleTimeString("ko-KR", { hour12: false }) +
+    (new Date().toDateString() === d.toDateString() ? "" : " " + (d.getMonth() + 1) + "/" + d.getDate());
+}
+
+function fillSettings(s) {
+  let unit = 1;
+  if (s.interval_sec % 3600 === 0) unit = 3600; else if (s.interval_sec % 60 === 0) unit = 60;
+  $("intervalUnit").value = unit;
+  $("intervalVal").value = s.interval_sec / unit;
+  $("jitter").value = s.jitter_sec;
+  $("mode").value = s.mode;
+  $("windowTitle").value = s.window_title;
+  $("startDelay").value = s.start_delay_sec;
+  $("msgFormat").value = s.message_format;
+  $("pressEnter").checked = s.press_enter;
+  $("includeShorts").checked = s.include_shorts;
+  $("includeStreams").checked = s.include_streams;
+  $("requireWindow").checked = s.require_window;
+  $("dryRun").checked = s.dry_run;
+}
+
+function readSettings() {
+  return {
+    interval_sec: Math.max(1, Math.round(Number($("intervalVal").value) * Number($("intervalUnit").value))),
+    jitter_sec: Number($("jitter").value) || 0,
+    mode: $("mode").value,
+    window_title: $("windowTitle").value,
+    start_delay_sec: Number($("startDelay").value) || 0,
+    message_format: $("msgFormat").value || "{url}",
+    press_enter: $("pressEnter").checked,
+    include_shorts: $("includeShorts").checked,
+    include_streams: $("includeStreams").checked,
+    require_window: $("requireWindow").checked,
+    dry_run: $("dryRun").checked,
+  };
+}
+
+const STATUS = { ready: "준비됨", loading: "불러오는 중", error: "오류" };
+
+function render() {
+  const s = state;
+  if (!settingsLoaded) { fillSettings(s.settings); settingsLoaded = true; }
+
+  $("dot").classList.toggle("on", s.running);
+  $("statusText").textContent = s.status + (s.settings.dry_run ? " · 테스트 모드" : "");
+  $("startBtn").textContent = s.running ? "■ 정지" : "▶ 시작";
+  $("startBtn").classList.toggle("primary", !s.running);
+  $("startBtn").classList.toggle("danger", s.running);
+  $("skipBtn").disabled = !s.running;
+  $("totalSent").textContent = s.total_sent.toLocaleString();
+  $("nextBox").innerHTML = s.next
+    ? `<b class="ellipsis">${esc(s.next.channel)}</b><a class="ellipsis" href="${esc(s.next.url)}" target="_blank" title="${esc(s.next.title)}">${esc(s.next.title || s.next.url)}</a>`
+    : "-";
+
+  const cs = s.settings;
+  $("clickPos").textContent = cs.click_x != null ? `(${cs.click_x}, ${cs.click_y})` : "설정 안 함";
+  if (s.capture.until) {
+    $("captureMsg").textContent = `${Math.ceil(s.capture.until - Date.now() / 1000)}초 뒤 마우스 위치 저장…`;
+  } else if (s.capture.result) {
+    $("captureMsg").textContent = s.capture.result;
+  }
+
+  $("chCount").textContent = s.channels.length ? `(${s.channels.length})` : "";
+  $("emptyHint").style.display = s.channels.length ? "none" : "block";
+  $("chBody").innerHTML = s.channels.map((c, i) => {
+    const pct = c.count ? Math.round((c.index / c.count) * 100) : 0;
+    const badge = !c.enabled ? `<span class="badge off">꺼짐</span>`
+      : `<span class="badge ${c.status}" title="${esc(c.error)}">${STATUS[c.status] || c.status}</span>`;
+    return `<tr>
+      <td><input type="checkbox" data-act="toggle" data-id="${c.id}" ${c.enabled ? "checked" : ""}></td>
+      <td class="name"><b class="ellipsis">${esc(c.name)}</b><a class="ellipsis" href="${esc(c.url)}" target="_blank" style="font-size:12px">${esc(c.url)}</a></td>
+      <td style="min-width:110px">${c.count ? c.index + 1 : 0} / ${c.count}<div class="bar"><i style="width:${pct}%"></i></div></td>
+      <td style="max-width:260px">${c.current ? `<a class="ellipsis" href="${esc(c.current.url)}" target="_blank">${esc(c.current.title || c.current.url)}</a>` : "-"}</td>
+      <td>${c.loops}</td>
+      <td style="min-width:150px">${badge}${c.error && c.status === "error" ? `<div class="hint" style="color:var(--bad)">${esc(c.error).slice(0, 80)}</div>` : ""}</td>
+      <td style="white-space:nowrap">
+        <button class="small" data-act="up" data-id="${c.id}" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button class="small" data-act="down" data-id="${c.id}" ${i === s.channels.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="small" data-act="refresh" data-id="${c.id}" title="영상 목록 다시 불러오기">새로고침</button>
+        <button class="small" data-act="reset" data-id="${c.id}" title="최신 영상부터 다시 시작">처음부터</button>
+        <button class="small danger" data-act="del" data-id="${c.id}">삭제</button>
+      </td>
+    </tr>`;
+  }).join("");
+
+  $("log").innerHTML = s.log.map((l) => `<div class="${l.kind}">
+      <span class="t">${fmtTime(l.t)}</span>
+      <span>${l.channel ? `<b>${esc(l.channel)}</b> · ` : ""}${esc(l.text)}
+      ${l.url ? ` <a href="${esc(l.url)}" target="_blank">${esc(l.url)}</a>` : ""}</span>
+    </div>`).join("") || `<span class="muted">기록이 없습니다.</span>`;
+}
+
+let clockOffset = 0;
+function tickCountdown() {
+  if (!state || !state.running || !state.next_send_at) { $("countdown").textContent = "--:--"; return; }
+  const now = Date.now() / 1000 + clockOffset;
+  $("countdown").textContent = fmtDur(state.next_send_at - now);
+}
+
+async function poll() {
+  try {
+    state = await api("GET", "/api/state");
+    clockOffset = state.now - Date.now() / 1000;
+    render();
+  } catch (e) {
+    $("statusText").textContent = "프로그램과 연결이 끊겼습니다 (app.py 실행 중인지 확인)";
+    $("dot").classList.remove("on");
+  }
+}
+
+$("startBtn").onclick = async () => {
+  await api("POST", state && state.running ? "/api/stop" : "/api/start");
+  poll();
+};
+$("skipBtn").onclick = async () => { await api("POST", "/api/skip"); poll(); };
+
+$("addBtn").onclick = async () => {
+  const urls = $("urls").value.trim();
+  if (!urls) return;
+  const r = await api("POST", "/api/channels", { urls });
+  $("addMsg").className = "msg" + (r.errors && r.errors.length ? " err" : "");
+  $("addMsg").textContent = r.errors && r.errors.length ? r.errors.join("\n") : "추가했습니다. 영상 목록을 불러오는 중입니다…";
+  $("urls").value = "";
+  poll();
+};
+
+$("saveBtn").onclick = async () => {
+  const r = await api("POST", "/api/settings", readSettings());
+  $("setMsg").className = "msg" + (r.ok ? "" : " err");
+  $("setMsg").textContent = r.ok ? "저장했습니다." : r.error;
+  setTimeout(() => ($("setMsg").textContent = ""), 2500);
+  settingsLoaded = false;
+  poll();
+};
+
+$("testBtn").onclick = async () => {
+  await api("POST", "/api/settings", readSettings());
+  await api("POST", "/api/test", { delay: 3 });
+  $("setMsg").className = "msg";
+  $("setMsg").textContent = "3초 뒤 텔레그램 창에 테스트 메시지를 입력합니다…";
+  setTimeout(() => ($("setMsg").textContent = ""), 5000);
+};
+
+$("captureBtn").onclick = async () => { await api("POST", "/api/capture", { delay: 5 }); poll(); };
+$("clearPosBtn").onclick = async () => {
+  await api("POST", "/api/settings", { click_x: null, click_y: null });
+  $("captureMsg").textContent = "";
+  poll();
+};
+
+$("chBody").addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const id = el.dataset.id, act = el.dataset.act;
+  if (act === "toggle") await api("PATCH", `/api/channels/${id}`, { enabled: el.checked });
+  if (act === "up" || act === "down") await api("POST", `/api/channels/${id}/move`, { delta: act === "up" ? -1 : 1 });
+  if (act === "refresh") await api("POST", `/api/channels/${id}/refresh`, {});
+  if (act === "reset") await api("PATCH", `/api/channels/${id}`, { index: 0 });
+  if (act === "del" && confirm("이 채널을 삭제할까요?")) await api("DELETE", `/api/channels/${id}`);
+  poll();
+});
+
+poll();
+setInterval(poll, 1500);
+setInterval(tickCountdown, 250);
+</script>
+</body>
+</html>
