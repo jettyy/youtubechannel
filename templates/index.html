@@ -134,6 +134,13 @@
             <option value="sequential">한 채널씩 끝까지 (A 전체 → B 전체 …)</option>
           </select>
         </label>
+        <label>
+          <span class="lbl">보낼 영상 기간</span>
+          <select id="recentMonths">
+            <option value="0">전체 영상</option>
+            <option value="1">최근 1개월</option><option value="2">최근 2개월</option><option value="3">최근 3개월</option><option value="4">최근 4개월</option><option value="5">최근 5개월</option><option value="6">최근 6개월</option><option value="9">최근 9개월</option><option value="12">최근 12개월</option><option value="18">최근 18개월</option><option value="24">최근 24개월</option><option value="36">최근 36개월</option>
+          </select>
+        </label>
       </div>
       <div class="row">
         <label>
@@ -238,6 +245,7 @@ function fillSettings(s) {
   $("pressEnter").checked = s.press_enter;
   $("includeShorts").checked = s.include_shorts;
   $("includeStreams").checked = s.include_streams;
+  $("recentMonths").value = String(s.recent_months || 0);
   $("requireWindow").checked = s.require_window;
   $("dryRun").checked = s.dry_run;
 }
@@ -253,6 +261,7 @@ function readSettings() {
     press_enter: $("pressEnter").checked,
     include_shorts: $("includeShorts").checked,
     include_streams: $("includeStreams").checked,
+    recent_months: Number($("recentMonths").value) || 0,
     require_window: $("requireWindow").checked,
     dry_run: $("dryRun").checked,
   };
@@ -292,7 +301,7 @@ function render() {
     return `<tr>
       <td><input type="checkbox" data-act="toggle" data-id="${c.id}" ${c.enabled ? "checked" : ""}></td>
       <td class="name"><b class="ellipsis">${esc(c.name)}</b><a class="ellipsis" href="${esc(c.url)}" target="_blank" style="font-size:12px">${esc(c.url)}</a></td>
-      <td style="min-width:110px">${c.count ? c.index + 1 : 0} / ${c.count}<div class="bar"><i style="width:${pct}%"></i></div></td>
+      <td style="min-width:110px">${c.count ? c.index + 1 : 0} / ${c.count}<div class="bar"><i style="width:${pct}%"></i></div>${c.note ? `<div class="hint" style="max-width:220px">${esc(c.note)}</div>` : ""}</td>
       <td style="max-width:260px">${c.current ? `<a class="ellipsis" href="${esc(c.current.url)}" target="_blank">${esc(c.current.title || c.current.url)}</a>` : "-"}</td>
       <td>${c.loops}</td>
       <td style="min-width:150px">${badge}${c.error && c.status !== "loading" ? `<div class="hint" style="color:var(--${c.status === "error" ? "bad" : "warn"});max-width:320px;word-break:break-all" title="${esc(c.error)}">${esc(c.error.slice(0, 200))}</div>` : ""}</td>

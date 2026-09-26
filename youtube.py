@@ -1,5 +1,6 @@
 """유튜브 채널 주소에서 영상 목록(최신순)을 가져오는 모듈 (yt-dlp 사용)."""
 
+import datetime as dt
 import os
 import re
 import ssl
@@ -62,6 +63,8 @@ def _extract(url: str) -> dict:
         "no_warnings": True,
         "extract_flat": "in_playlist",
         "skip_download": True,
+        # 목록에서 "3 weeks ago" 같은 표시로 대략적인 업로드 날짜(timestamp)를 계산
+        "extractor_args": {"youtubetab": {"approximate_date": [""]}},
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False) or {}
@@ -113,11 +116,16 @@ def fetch_rss_videos(base: str) -> tuple[str, list[dict]]:
     for e in root.findall("a:entry", ns):
         vid = e.findtext("yt:videoId", "", ns)
         if vid:
+            try:
+                ts = int(dt.datetime.fromisoformat(e.findtext("a:published", "", ns)).timestamp())
+            except ValueError:
+                ts = None
             videos.append(
                 {
                     "id": vid,
                     "title": e.findtext("a:title", "", ns),
                     "url": f"https://www.youtube.com/watch?v={vid}",
+                    "ts": ts,
                 }
             )
     return name, videos
@@ -126,7 +134,8 @@ def fetch_rss_videos(base: str) -> tuple[str, list[dict]]:
 def fetch_channel_videos(channel_url: str, tabs=("videos",)):
     """채널의 영상 목록을 최신순으로 가져온다.
 
-    반환값: (채널 이름, [{"id", "title", "url"}, ...], 경고 메시지)
+    반환값: (채널 이름, [{"id", "title", "url", "ts"}, ...], 경고 메시지)
+    ts 는 대략적인 업로드 시각(유닉스 초). 알 수 없으면 None.
     """
     base = normalize_channel_url(channel_url)
     name = ""
@@ -153,7 +162,11 @@ def fetch_channel_videos(channel_url: str, tabs=("videos",)):
                 if tab == "shorts"
                 else f"https://www.youtube.com/watch?v={vid}"
             )
-            videos.append({"id": vid, "title": entry.get("title") or "", "url": url})
+            ts = entry.get("timestamp") or entry.get("release_timestamp")
+            videos.append(
+                {"id": vid, "title": entry.get("title") or "", "url": url,
+                 "ts": int(ts) if ts else None}
+            )
 
     name = re.sub(r"\s*-\s*(Videos|Shorts|Live|동영상)$", "", name)
     if videos:

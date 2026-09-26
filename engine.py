@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "restore_clipboard": True,   # 전송 후 원래 클립보드 내용 복구
     "include_shorts": False,     # 쇼츠도 포함
     "include_streams": False,    # 라이브(지난 방송)도 포함
+    "recent_months": 0,          # 최근 N개월 안에 올라온 영상만 (0 = 전체)
     "start_delay_sec": 5,        # 시작 버튼 누른 뒤 첫 전송까지 대기
     "message_format": "{url}",   # 보낼 문구. {url} {title} {channel} 사용 가능
     "dry_run": False,            # 테스트 모드: 실제로 입력하지 않고 기록만 남김
@@ -63,8 +64,12 @@ class Engine:
         self.settings.update(data.get("settings", {}))
         self.channels = data.get("channels", [])
         for ch in self.channels:
+            ch.setdefault("all_videos", list(ch.get("videos", [])))
             if ch.get("status") == "loading":
                 ch["status"] = "ready" if ch.get("videos") else "error"
+        for ch in self.channels:
+            ch.setdefault("note", "")
+            self._apply_filter(ch)
         self.log = data.get("log", [])[-LOG_LIMIT:]
         self.rr_pointer = data.get("rr_pointer", 0)
         self.seq_pointer = data.get("seq_pointer", 0)
@@ -119,6 +124,8 @@ class Engine:
                     "name": url.rsplit("/", 1)[-1],
                     "enabled": True,
                     "videos": [],
+                    "all_videos": [],
+                    "note": "",
                     "index": 0,
                     "loops": 0,
                     "sent": 0,
@@ -161,17 +168,53 @@ class Engine:
             return False
         with self.lock:
             ch["name"] = name or ch["name"]
-            ch["videos"] = videos
+            ch["all_videos"] = videos
             ch["fetched_at"] = time.time()
             ch["error"] = warning
             ch["status"] = "ready"
-            if reset_index or ch["index"] >= len(videos):
+            if reset_index:
                 ch["index"] = 0
-        self.add_log("info", f"영상 {len(videos)}개 불러옴", ch["name"])
+            # 처음(0번)부터 시작할 차례면 새로 올라온 영상부터 보내도록 위치를 유지하지 않음
+            self._apply_filter(ch, keep_position=not reset_index and ch["index"] > 0)
+        self.add_log("info", f"영상 {len(videos)}개 불러옴" + (f" → {ch['note']}" if ch["note"] else ""), ch["name"])
         if warning:
             self.add_log("error", warning, ch["name"])
         self.save()
         return True
+
+    def _apply_filter(self, ch, keep_position=True):
+        """설정한 기간(최근 N개월) 안의 영상만 골라 ch["videos"] 에 넣는다."""
+        all_videos = ch.get("all_videos") or []
+        months = self.settings.get("recent_months") or 0
+        current = None
+        if keep_position and ch["videos"] and ch["index"] < len(ch["videos"]):
+            current = ch["videos"][ch["index"]]["id"]
+
+        if not months:
+            videos, note = list(all_videos), ""
+        elif not any(v.get("ts") for v in all_videos):
+            videos = list(all_videos)
+            note = "업로드 날짜를 알 수 없어 기간 제한 없이 전체 영상 사용 (새로고침 해 보세요)"
+        else:
+            cutoff = time.time() - months * 30.44 * 86400
+            videos, last_ts = [], None
+            for v in all_videos:  # 최신순 목록이라 날짜가 없는 영상은 바로 앞 영상 날짜로 판단
+                ts = v.get("ts") or last_ts
+                last_ts = ts
+                if ts is None or ts >= cutoff:
+                    videos.append(v)
+            note = (
+                f"최근 {months}개월: {len(videos)}개 / 전체 {len(all_videos)}개"
+                if videos
+                else f"최근 {months}개월 안에 올라온 영상이 없어 건너뜀"
+            )
+
+        ch["videos"] = videos
+        ch["note"] = note
+        ids = [v["id"] for v in videos]
+        ch["index"] = ids.index(current) if current in ids else (
+            ch["index"] if ch["index"] < len(videos) and not current else 0
+        )
 
     def refresh_channel_async(self, cid, reset_index=False):
         threading.Thread(
@@ -203,6 +246,7 @@ class Engine:
     # ------------------------------------------------------------------ 설정
     def update_settings(self, new: dict):
         with self.lock:
+            before = dict(self.settings)
             for k, v in new.items():
                 if k not in DEFAULT_SETTINGS:
                     continue
@@ -220,7 +264,27 @@ class Engine:
                 self.settings["interval_sec"] = 1
             if self.settings["mode"] not in ("round_robin", "sequential"):
                 self.settings["mode"] = "round_robin"
+            if self.settings["recent_months"] != before.get("recent_months"):
+                for ch in self.channels:
+                    self._apply_filter(ch)
+                m = self.settings["recent_months"]
+                self.add_log("info", f"영상 기간: {'최근 ' + str(m) + '개월' if m else '전체'}")
+            refetch = any(
+                self.settings[k] != before.get(k) for k in ("include_shorts", "include_streams")
+            )
+            if refetch:  # 쇼츠/라이브 포함 여부가 바뀌면 목록을 다시 불러옴
+                targets = list(self.channels)
+            elif self.settings["recent_months"]:
+                # 예전에 불러와서 업로드 날짜가 없는 채널은 날짜를 받으러 다시 불러옴
+                targets = [
+                    c for c in self.channels
+                    if c.get("all_videos") and not any(v.get("ts") for v in c["all_videos"])
+                ]
+            else:
+                targets = []
         self.save()
+        for ch in targets:
+            self.refresh_channel_async(ch["id"])
         self.wake.set()  # 대기 중이면 새 간격으로 다시 계산
 
     # ------------------------------------------------------------------ 다음 영상 고르기
@@ -372,10 +436,11 @@ class Engine:
                     {
                         k: c.get(k)
                         for k in ("id", "url", "name", "enabled", "index", "loops",
-                                  "sent", "status", "error", "fetched_at")
+                                  "sent", "status", "error", "fetched_at", "note")
                     }
                     | {
                         "count": len(c["videos"]),
+                        "total": len(c.get("all_videos") or []),
                         "current": (
                             c["videos"][c["index"]]
                             if c["videos"] and c["index"] < len(c["videos"])
